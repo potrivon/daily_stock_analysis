@@ -1711,7 +1711,6 @@ class NotificationService:
                     result = self.send_to_custom(content)
                 elif channel == NotificationChannel.PUSHPLUS:
                     # 生成标题（从内容中提取日期）
-                    import re
                     date_match = re.search(r'(\d{4}-\d{2}-\d{2})', content)
                     if date_match:
                         report_date = date_match.group(1)
