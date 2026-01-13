@@ -39,6 +39,7 @@ class NotificationChannel(Enum):
     TELEGRAM = "telegram"  # Telegram
     EMAIL = "email"        # 邮件
     CUSTOM = "custom"      # 自定义 Webhook
+    PUSHPLUS = "pushplus"  # PushPlus
     UNKNOWN = "unknown"    # 未知
 
 
@@ -82,6 +83,7 @@ class ChannelDetector:
             NotificationChannel.TELEGRAM: "Telegram",
             NotificationChannel.EMAIL: "邮件",
             NotificationChannel.CUSTOM: "自定义Webhook",
+            NotificationChannel.PUSHPLUS: "PushPlus",
             NotificationChannel.UNKNOWN: "未知渠道",
         }
         return names.get(channel, "未知渠道")
@@ -132,7 +134,10 @@ class NotificationService:
         
         # 自定义 Webhook 配置
         self._custom_webhook_urls = getattr(config, 'custom_webhook_urls', []) or []
-        
+
+        # PushPlus 配置
+        self._pushplus_token = getattr(config, 'pushplus_token', None)
+
         # 检测所有已配置的渠道
         self._available_channels = self._detect_all_channels()
         
@@ -170,7 +175,11 @@ class NotificationService:
         # 自定义 Webhook
         if self._custom_webhook_urls:
             channels.append(NotificationChannel.CUSTOM)
-        
+
+        # PushPlus
+        if self._pushplus_token:
+            channels.append(NotificationChannel.PUSHPLUS)
+
         return channels
     
     def _is_telegram_configured(self) -> bool:
@@ -1536,7 +1545,86 @@ class NotificationService:
         
         logger.info(f"自定义 Webhook 推送完成：成功 {success_count}/{len(self._custom_webhook_urls)}")
         return success_count > 0
-    
+
+    def send_to_pushplus(self, content: str, title: str = "股票分析报告") -> bool:
+        """
+        推送消息到 PushPlus
+
+        PushPlus API 文档：https://www.pushplus.plus
+
+        Args:
+            content: 消息内容（Markdown 格式）
+            title: 消息标题
+
+        Returns:
+            是否发送成功
+        """
+        if not self._pushplus_token:
+            logger.warning("PushPlus Token 未配置，跳过推送")
+            return False
+
+        try:
+            # PushPlus API 端点
+            api_url = "https://www.pushplus.plus/api/send"
+
+            # 构建请求数据
+            # 获取当前日期
+            current_date = datetime.now().strftime('%Y-%m-%d')
+
+            payload = {
+                "topic": "daily_stock",
+                "token": self._pushplus_token,
+                "title": f"{title} - {current_date}",
+                "content": content,
+                "template": "markdown",
+                "channel": "wechat",
+                "pre": ""
+            }
+
+            # 构建请求头
+            headers = {
+                'Content-Type': 'application/json;charset=UTF-8',
+                'Accept': '*/*',
+                'pushToken': self._pushplus_token,
+                'User-Agent': 'StockAnalysis/1.0'
+            }
+
+            logger.debug(f"PushPlus 请求 URL: {api_url}")
+            logger.debug(f"PushPlus 请求 payload 长度: {len(content)} 字符")
+
+            response = requests.post(
+                api_url,
+                json=payload,
+                headers=headers,
+                timeout=30
+            )
+
+            logger.debug(f"PushPlus 响应状态码: {response.status_code}")
+            logger.debug(f"PushPlus 响应内容: {response.text}")
+
+            if response.status_code == 200:
+                result = response.json()
+                # PushPlus 返回格式：{"code": 200, "msg": "请求成功", "data": {...}}
+                if result.get('code') == 200:
+                    logger.info("PushPlus 消息发送成功")
+                    return True
+                else:
+                    error_msg = result.get('msg', '未知错误')
+                    error_code = result.get('code', 'N/A')
+                    logger.error(f"PushPlus 返回错误 [code={error_code}]: {error_msg}")
+                    logger.error(f"完整响应: {result}")
+                    return False
+            else:
+                logger.error(f"PushPlus 请求失败: HTTP {response.status_code}")
+                logger.error(f"响应内容: {response.text}")
+                return False
+
+        except Exception as e:
+            logger.error(f"发送 PushPlus 消息失败: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            return False
+
     def _build_custom_webhook_payload(self, url: str, content: str) -> dict:
         """
         根据 URL 构建对应的 Webhook payload
@@ -1621,6 +1709,16 @@ class NotificationService:
                     result = self.send_to_email(content)
                 elif channel == NotificationChannel.CUSTOM:
                     result = self.send_to_custom(content)
+                elif channel == NotificationChannel.PUSHPLUS:
+                    # 生成标题（从内容中提取日期）
+                    import re
+                    date_match = re.search(r'(\d{4}-\d{2}-\d{2})', content)
+                    if date_match:
+                        report_date = date_match.group(1)
+                        title = f"📈 A股智能分析报告 - {report_date}"
+                    else:
+                        title = "📈 A股智能分析报告"
+                    result = self.send_to_pushplus(content, title)
                 else:
                     logger.warning(f"不支持的通知渠道: {channel}")
                     result = False
