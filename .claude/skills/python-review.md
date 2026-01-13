@@ -183,6 +183,9 @@ from my_module import my_function
 ## 常见问题检查清单
 
 ### 安全问题
+- [ ] **硬编码密钥/Token**（严重安全风险）
+- [ ] **敏感信息泄露到版本控制**
+- [ ] **API Key 或密码明文存储**
 - [ ] SQL 注入：使用参数化查询
 - [ ] 硬编码密码：使用环境变量
 - [ ] 不安全的 eval()：避免使用或限制上下文
@@ -279,6 +282,180 @@ from my_module import my_function
 ### 文档生成
 - **Sphinx**: 文档生成
 - **pydoc**: 内置文档工具
+
+### 安全扫描工具
+- **Bandit**: Python 安全漏洞扫描
+- **Safety**: 依赖包安全检查
+- **git-secrets**: Git 敏感信息检测
+- **truffleHog**: 密钥和证书扫描
+
+## 敏感信息检测（Python 代码）
+
+### 常见硬编码密钥模式
+
+```python
+# ❌ 严重问题：测试函数中的硬编码 Token
+def test_pushplus():
+    # 不要这样做！Token 会泄露到版本控制
+    token = "32793335f3874de8ad06dac8b2c6f676"
+    send_test_message(token)
+
+# ✅ 正确做法1：使用环境变量
+def test_pushplus():
+    token = os.getenv("TEST_PUSHPLUS_TOKEN")
+    if not token:
+        pytest.skip("TEST_PUSHPLUS_TOKEN not configured")
+    send_test_message(token)
+
+# ✅ 正确做法2：使用命令行参数
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--token', help='PushPlus Token')
+    args = parser.parse_args()
+    test_pushplus(args.token)
+```
+
+### 检测硬编码凭证的技巧
+
+**1. 搜索长字符串（可能是密钥）**
+```bash
+# 搜索 20+ 字符的字符串
+grep -rE '"[A-Za-z0-9]{20,}"' *.py
+grep -rE "'[A-Za-z0-9]{20,}'" *.py
+```
+
+**2. 搜索常见密钥关键词**
+```bash
+grep -rE "(api_key|apikey|token|secret|password|passwd)" *.py
+```
+
+**3. 检查 URL 参数中的密钥**
+```python
+# ❌ 错误：URL 中包含密钥
+WEBHOOK_URL = "https://api.example.com/hook?token=abc123def456"
+
+# ✅ 正确：使用环境变量
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+# 或
+WEBHOOK_URL = f"https://api.example.com/hook?token={os.getenv('WEBHOOK_TOKEN')}"
+```
+
+**4. 检查配置文件**
+```python
+# ❌ 错误：config.py 中硬编码
+class Config:
+    SECRET_KEY = "supersecretkey12345"
+    DB_PASSWORD = "mypassword"
+
+# ✅ 正确：从环境变量读取
+class Config:
+    SECRET_KEY = os.getenv("SECRET_KEY")
+    DB_PASSWORD = os.getenv("DB_PASSWORD")
+
+    def __init__(self):
+        if not self.SECRET_KEY:
+            raise ValueError("SECRET_KEY must be configured")
+```
+
+### 真实案例对比
+
+#### 案例 1：PushPlus Token 泄露
+```python
+# ❌ 代码审查发现的问题（test_env.py:526）
+def main():
+    test_pushplus('32793335f3874de8ad06dac8b2c6f676')  # 真实Token！
+
+# 🔴 审核发现：
+# - 位置：test_env.py:526
+# - 问题：硬编码 32 位十六进制 Token
+# - 风险：Token 已暴露在代码仓库中
+# - 影响：任何能访问代码的人都能使用此 Token
+# - 修复：恢复命令行参数支持，使用 --pushplus <token>
+
+# ✅ 修复后的代码
+def main():
+    parser.add_argument('--pushplus', nargs='?', const='', metavar='TOKEN')
+    args = parser.parse_args()
+    token = args.pushplus if args.pushplus else None
+    test_pushplus(token)
+```
+
+#### 案例 2：数据库密码泄露
+```python
+# ❌ 错误示例
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'mydb',
+        'USER': 'postgres',
+        'PASSWORD': 'Sup3rS3cr3t!',  # 硬编码密码
+        'HOST': 'localhost',
+    }
+}
+
+# ✅ 正确示例
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('DB_NAME'),
+        'USER': os.getenv('DB_USER'),
+        'PASSWORD': os.getenv('DB_PASSWORD'),  # 从环境变量读取
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+    }
+}
+```
+
+### 敏感信息检测清单
+
+审核代码时，检查以下位置：
+
+- [ ] 测试文件（`test_*.py`）中的硬编码值
+- [ ] 配置文件（`config.py`, `settings.py`）中的密钥
+- [ ] 函数默认参数中的敏感值
+- [ ] 类属性中的凭证
+- [ ] URL 参数中的 key/token
+- [ ] 字典/列表中的密码或密钥
+- [ ] 常量定义中的 SECRET/TOKEN/PASSWORD
+
+### 自动检测脚本
+
+```python
+import re
+import os
+
+def detect_secrets(file_path):
+    """检测 Python 文件中的敏感信息"""
+    sensitive_patterns = [
+        (r'(?:api[_-]?key|token|secret|password)\s*[:=]\s*["\']([a-zA-Z0-9]{16,})["\']', "Hardcoded credential"),
+        (r'["\']([a-f0-9]{32})["\']', "Possible hex key"),
+        (r'(["\'][\w-]+@[\w-]+\.\w+["\'])', "Email address"),
+        (r'(https?://[^\s]+key=[a-zA-Z0-9]{16,})', "URL with key"),
+    ]
+
+    issues = []
+    with open(file_path, 'r', encoding='utf-8') as f:
+        for line_num, line in enumerate(f, 1):
+            for pattern, issue_type in sensitive_patterns:
+                if re.search(pattern, line, re.IGNORECASE):
+                    issues.append((line_num, line.strip(), issue_type))
+
+    return issues
+
+# 使用示例
+if __name__ == "__main__":
+    for py_file in os.listdir('.'):
+        if py_file.endswith('.py'):
+            print(f"\n检查 {py_file}:")
+            issues = detect_secrets(py_file)
+            for line_num, line, issue_type in issues:
+                print(f"  Line {line_num}: {issue_type}")
+                print(f"    {line}")
+```
 
 ## 最佳实践链接
 

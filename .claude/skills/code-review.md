@@ -35,7 +35,9 @@
 - [x] SQL 注入风险
 - [x] XSS 风险（Web 应用）
 - [x] 命令注入风险
-- [x] 敏感信息泄露（密码、Token）
+- [x] **敏感信息泄露（密码、Token、API Key）**
+- [x] **硬编码的凭证或密钥**
+- [x] **代码中的真实 Token/Key 检测**
 - [x] 不安全的随机数生成
 - [x] 依赖库漏洞
 - [x] 文件路径遍历风险
@@ -187,6 +189,109 @@
 - 环境变量使用
 - 配置文件结构
 - 默认值合理性
+
+## 敏感信息检测 (Security & Secrets Detection)
+
+**必须检查的敏感信息类型：**
+
+### 1. API Keys 和 Tokens
+```python
+# ❌ 严重问题：硬编码的 API Key
+def send_notification():
+    api_key = "sk-1234567890abcdef"  # 真实密钥
+    headers = {"Authorization": f"Bearer {api_key}"}
+    requests.post(url, headers=headers)
+
+# ✅ 正确：使用环境变量
+def send_notification():
+    api_key = os.getenv("API_KEY")
+    if not api_key:
+        raise ValueError("API_KEY not configured")
+    headers = {"Authorization": f"Bearer {api_key}"}
+    requests.post(url, headers=headers)
+```
+
+### 2. 数据库凭证
+```python
+# ❌ 严重问题：硬编码的数据库密码
+db_config = {
+    "host": "localhost",
+    "user": "root",
+    "password": "MySecretPassword123",  # 真实密码
+    "database": "mydb"
+}
+
+# ✅ 正确：从环境变量读取
+db_config = {
+    "host": os.getenv("DB_HOST", "localhost"),
+    "user": os.getenv("DB_USER"),
+    "password": os.getenv("DB_PASSWORD"),
+    "database": os.getenv("DB_NAME")
+}
+```
+
+### 3. 第三方服务凭证
+```python
+# ❌ 严重问题：硬编码的第三方 Token
+PUSHPLUS_TOKEN = "32793335f3874de8ad06dac8b2c6f676"  # 真实Token
+WECHAT_WEBHOOK = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123def456"
+
+# ✅ 正确：使用配置文件
+PUSHPLUS_TOKEN = os.getenv("PUSHPLUS_TOKEN")
+WECHAT_WEBHOOK = os.getenv("WECHAT_WEBHOOK_URL")
+```
+
+### 4. 加密密钥和盐值
+```python
+# ❌ 严重问题：硬编码的密钥
+SECRET_KEY = "supersecretkey12345"
+ENCRYPTION_SALT = "fixedsaltvalue"
+
+# ✅ 正确：从安全配置读取
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY or len(SECRET_KEY) < 32:
+    raise ValueError("SECRET_KEY must be at least 32 characters")
+```
+
+### 常见敏感信息模式
+
+**检测规则（正则表达式）：**
+- API Key: `(?:api[_-]?key|apikey|api_key)\s*[:=]\s*['"]([a-zA-Z0-9]{20,})['"]`
+- Token: `(?:token|access_token|auth_token)\s*[:=]\s*['"]([a-zA-Z0-9]{20,})['"]`
+- 密码: `(?:password|passwd|pwd)\s*[:=]\s*['"]([^'"]{6,})['"]`
+- Webhook: `https?://[^\s'"]+key[=]([a-zA-Z0-9]{20,})`
+- Base64 编码的密钥: `['"]([A-Za-z0-9+/]{32,}={0,2})['"]`
+
+**高风险文件：**
+- 配置文件：`.env`, `config.py`, `settings.py`
+- 测试文件：`test_*.py`, `*_test.py`
+- 初始化文件：`__init__.py`, `bootstrap.py`
+- 数据库迁移文件
+- CI/CD 配置文件
+
+**检查方法：**
+1. 搜索常见敏感信息关键词
+2. 检查硬编码的长字符串（>20字符）
+3. 检查 URL 参数中的敏感信息
+4. 验证是否使用环境变量
+5. 检查配置文件是否被提交到版本控制
+
+**报告格式：**
+```markdown
+#### 🔴 严重问题：敏感信息泄露
+1. **硬编码的 API Token** (test_env.py:526)
+   ```python
+   test_pushplus('32793335f3874de8ad06dac8b2c6f676')
+   ```
+   - 风险等级：🔴 严重
+   - 影响：Token 泄露到代码仓库，可能导致未授权访问
+   - 检测到：32位十六进制字符串（可能是 Token）
+   - 建议：
+     1. 立即撤销此 Token
+     2. 从代码中移除，使用环境变量或命令行参数
+     3. 检查 Git 历史记录，考虑清理
+     4. 将此文件添加到 .gitignore（如包含敏感信息）
+```
 
 ## 注意事项
 

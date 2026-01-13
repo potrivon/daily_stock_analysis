@@ -523,7 +523,58 @@ def query_stock_data(stock_code: str, days: int = 10):
 
 
 def main():
-    test_pushplus('32793335f3874de8ad06dac8b2c6f676')
+    parser = argparse.ArgumentParser(
+        description='A股自选股智能分析系统 - 环境验证测试',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    parser.add_argument('--db', action='store_true', help='查看数据库内容')
+    parser.add_argument('--llm', action='store_true', help='测试 LLM 调用')
+    parser.add_argument('--fetch', action='store_true', help='测试数据获取')
+    parser.add_argument('--notify', action='store_true', help='测试企业微信通知推送')
+    parser.add_argument('--pushplus', nargs='?', const='', metavar='TOKEN', help='测试 PushPlus 推送（可选指定 Token）')
+    parser.add_argument('--config', action='store_true', help='查看配置')
+    parser.add_argument('--stock', type=str, help='查询指定股票数据，如 --stock 600519')
+    parser.add_argument('--all', action='store_true', help='运行所有测试（包括 LLM）')
+
+    args = parser.parse_args()
+
+    # 如果没有指定任何参数，运行基础测试
+    if not any([args.db, args.llm, args.fetch, args.notify, args.pushplus is not None, args.config, args.stock, args.all]):
+        run_all_tests()
+        return 0
+
+    # 根据参数运行指定测试
+    if args.config:
+        test_config()
+
+    if args.db:
+        view_database()
+
+    if args.stock:
+        query_stock_data(args.stock)
+
+    if args.fetch:
+        test_data_fetch()
+
+    if args.llm:
+        test_llm()
+
+    if args.notify:
+        test_notification()
+
+    if args.pushplus is not None:
+        # 如果提供了 token 参数，使用提供的 token；否则从配置读取
+        token = args.pushplus if args.pushplus else None
+        test_pushplus(token)
+
+    if args.all:
+        test_config()
+        view_database()
+        test_data_fetch()
+        test_llm()
+        test_notification()
+        test_pushplus()
 
     return 0
 
