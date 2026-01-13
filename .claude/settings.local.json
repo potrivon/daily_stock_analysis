@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push:*)",
+      "Bash(git config:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(python:*)",
+      "Bash(.venv\\\\Scripts\\\\python.exe:*)",
+      "Bash(\".venv/Scripts/python.exe\" test_env.py --pushplus 32793335f3874de8ad06dac8b2c6f676)"
+    ]
+  }
+}
