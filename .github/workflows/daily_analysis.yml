@@ -4,7 +4,7 @@ on:
   # 定时触发 - 每天北京时间 18:00 (UTC 10:00)
   schedule:
     - cron: '0 10 * * 1-5'  # 周一到周五，UTC 10:00 = 北京时间 18:00
-  
+
   # 手动触发
   workflow_dispatch:
     inputs:
@@ -17,6 +17,14 @@ on:
           - full          # 完整分析（股票+大盘）
           - market-only   # 仅大盘复盘
           - stocks-only   # 仅股票分析
+
+# ==================== Variables 定义 ====================
+# 方式一：在网页端配置（推荐）
+# Settings → Secrets and variables → Actions → Variables
+#
+# 方式二：在 workflow 中定义（仅用于测试）
+# 变量优先级：网页端 > workflow 定义 > 默认值
+# =====================================
 
 jobs:
   analyze:
@@ -78,8 +86,9 @@ jobs:
           # 方式六：PushPlus 推送（微信推送）
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
 
-          # 自选股列表 (从 secrets 或使用默认值)
-          STOCK_LIST: ${{ secrets.STOCK_LIST || '600519,000001,601899' }}
+          # 自选股列表 (从 variables 或 secrets 或使用默认值)
+          # Variables 优先级高于 Secrets
+          STOCK_LIST: ${{ vars.STOCK_LIST || secrets.STOCK_LIST || '600519,000001,601899' }}
 
           # 其他配置
           LOG_LEVEL: INFO
