@@ -309,13 +309,13 @@ def test_llm():
 def test_notification():
     """测试通知推送"""
     print_header("5. 通知推送测试")
-    
+
     from notification import NotificationService
     from config import get_config
-    
+
     config = get_config()
     service = NotificationService()
-    
+
     print_section("配置检查")
     if service.is_available():
         print(f"  ✓ 企业微信 Webhook 已配置")
@@ -324,9 +324,9 @@ def test_notification():
     else:
         print(f"  ✗ 企业微信 Webhook 未配置")
         return False
-    
+
     print_section("发送测试消息")
-    
+
     test_message = f"""## 🧪 系统测试消息
 
 这是一条来自 **A股自选股智能分析系统** 的测试消息。
@@ -335,22 +335,117 @@ def test_notification():
 - 测试目的: 验证企业微信 Webhook 配置
 
 如果您收到此消息，说明通知功能配置正确 ✓"""
-    
+
     print(f"  正在发送...")
-    
+
     try:
         success = service.send_to_wechat(test_message)
-        
+
         if success:
             print(f"  ✓ 消息发送成功，请检查企业微信")
         else:
             print(f"  ✗ 消息发送失败")
-        
+
         return success
-        
+
     except Exception as e:
         print(f"  ✗ 发送异常: {e}")
         return False
+
+
+def test_pushplus(token: str = None):
+    """测试 PushPlus 推送"""
+    print_header("6. PushPlus 推送测试")
+
+    from notification import NotificationService
+
+    # 如果没有提供 token，从配置读取
+    if not token:
+        from config import get_config
+        config = get_config()
+        token = config.pushplus_token
+
+    print_section("配置检查")
+    if token:
+        token_preview = token[:8] + "..." + token[-4:] if len(token) > 12 else token
+        print(f"  ✓ PushPlus Token 已配置")
+        print(f"    Token: {token_preview}")
+    else:
+        print(f"  ✗ PushPlus Token 未配置")
+        print(f"    提示: 请在 .env 文件中设置 PUSHPLUS_TOKEN")
+        print(f"    或使用命令: python test_env.py --pushplus <your_token>")
+        return False
+
+    print_section("创建测试通知服务")
+
+    # 直接使用指定的 token 创建通知服务
+    service = NotificationService()
+    # 覆盖 token（用于测试指定 token）
+    service._pushplus_token = token
+
+    print_section("发送测试消息")
+
+    test_title = "🧪 PushPlus 测试"
+    test_message = f"""## 🧪 PushPlus 推送测试
+
+这是一条来自 **A股自选股智能分析系统** 的 PushPlus 测试消息。
+
+- 测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+- 测试目的: 验证 PushPlus 推送配置
+- Token: {token_preview}
+
+### 功能验证
+
+如果您收到此消息，说明：
+- ✅ PushPlus Token 配置正确
+- ✅ 网络连接正常
+- ✅ API 调用成功
+- ✅ Markdown 格式支持正常
+
+---
+
+**测试股票示例：**
+
+### 📊 贵州茅台 (600519)
+
+**操作建议：** 持有 | **评分：** 65分 | **趋势：** 震荡
+
+**技术面：**
+- 均线：MA5(1425.0) > MA10(1418.0) > MA20(1410.0) 多头排列
+- 量能：量比 1.1，成交温和
+- 位置：收盘 1428.0，涨幅 +0.56%
+
+**综合分析：**
+技术面强势，均线呈多头排列，成交量温和放大。短期有望继续上行，建议继续持有。
+
+⚠️ *此为测试消息，仅供参考*
+"""
+
+    print(f"  消息长度: {len(test_message)} 字符")
+    print(f"  正在发送到 PushPlus...")
+
+    try:
+        success = service.send_to_pushplus(test_message, test_title)
+
+        if success:
+            print(f"\n  ✓✓✓ 消息发送成功！")
+            print(f"  请检查您的微信（PushPlus 公众号推送）")
+        else:
+            print(f"\n  ✗ 消息发送失败")
+            print(f"  请检查:")
+            print(f"    1. Token 是否正确")
+            print(f"    2. 网络连接是否正常")
+            print(f"    3. PushPlus 服务是否可用")
+
+        return success
+
+    except Exception as e:
+        print(f"\n  ✗ 发送异常: {e}")
+        import traceback
+        print(f"\n  详细错误信息:")
+        print(traceback.format_exc())
+        return False
+
 
 
 def run_all_tests():
@@ -428,52 +523,8 @@ def query_stock_data(stock_code: str, days: int = 10):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='A股自选股智能分析系统 - 环境验证测试',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    
-    parser.add_argument('--db', action='store_true', help='查看数据库内容')
-    parser.add_argument('--llm', action='store_true', help='测试 LLM 调用')
-    parser.add_argument('--fetch', action='store_true', help='测试数据获取')
-    parser.add_argument('--notify', action='store_true', help='测试通知推送')
-    parser.add_argument('--config', action='store_true', help='查看配置')
-    parser.add_argument('--stock', type=str, help='查询指定股票数据，如 --stock 600519')
-    parser.add_argument('--all', action='store_true', help='运行所有测试（包括 LLM）')
-    
-    args = parser.parse_args()
-    
-    # 如果没有指定任何参数，运行基础测试
-    if not any([args.db, args.llm, args.fetch, args.notify, args.config, args.stock, args.all]):
-        run_all_tests()
-        return 0
-    
-    # 根据参数运行指定测试
-    if args.config:
-        test_config()
-    
-    if args.db:
-        view_database()
-    
-    if args.stock:
-        query_stock_data(args.stock)
-    
-    if args.fetch:
-        test_data_fetch()
-    
-    if args.llm:
-        test_llm()
-    
-    if args.notify:
-        test_notification()
-    
-    if args.all:
-        test_config()
-        view_database()
-        test_data_fetch()
-        test_llm()
-        test_notification()
-    
+    test_pushplus('32793335f3874de8ad06dac8b2c6f676')
+
     return 0
 
 
