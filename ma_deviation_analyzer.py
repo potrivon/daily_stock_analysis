@@ -446,9 +446,10 @@ def batch_analyze_from_config():
     这个函数会：
     1. 从 config.stock_list 读取股票代码
     2. 获取每只股票的历史数据
-    3. 进行均线偏离分析
-    4. 汇总并展示结果
-    5. 推送到配置的通知渠道（如 PushPlus）
+    3. 获取股票真实名称
+    4. 进行均线偏离分析
+    5. 汇总并展示结果
+    6. 推送到配置的通知渠道（如 PushPlus）
     """
     print("=" * 60)
     print("批量分析 - 从配置文件读取股票列表")
@@ -468,13 +469,18 @@ def batch_analyze_from_config():
     # 初始化分析器
     analyzer = MADeviationAnalyzer(threshold=1.5)
     
+    # 获取股票名称映射
+    stock_names = get_stock_names(stock_list)
+    
     # 存储分析结果
     results = []
     
     # 批量分析
     for code in stock_list:
         try:
-            print(f"正在分析 {code}...")
+            # 获取股票名称
+            stock_name = stock_names.get(code, f'股票{code}')
+            print(f"正在分析 {code} ({stock_name})...")
             
             # 这里需要实际的数据获取逻辑
             # 为了演示，我们使用模拟数据
@@ -486,7 +492,7 @@ def batch_analyze_from_config():
                 continue
             
             # 进行分析
-            result = analyzer.analyze(df, code, f"股票{code}")
+            result = analyzer.analyze(df, code, stock_name)
             results.append(result)
             
             # 打印分析结果
@@ -558,6 +564,55 @@ def batch_analyze_from_config():
     except Exception as e:
         print(f"\n❌ 推送失败: {e}")
         logger.error(f"推送异常: {e}", exc_info=True)
+
+
+def get_stock_names(stock_codes: List[str]) -> Dict[str, str]:
+    """
+    批量获取股票名称
+    
+    Args:
+        stock_codes: 股票代码列表
+        
+    Returns:
+        股票代码到名称的映射字典
+    """
+    stock_names = {}
+    
+    try:
+        import akshare as ak
+        
+        logger.info("正在获取股票名称...")
+        
+        # 获取A股实时行情（包含所有股票的名称）
+        df = ak.stock_zh_a_spot_em()
+        
+        if df is not None and not df.empty:
+            # 创建代码到名称的映射
+            for code in stock_codes:
+                # 查找对应股票
+                row = df[df['代码'] == code]
+                if not row.empty:
+                    stock_names[code] = row.iloc[0]['名称']
+                    logger.info(f"  {code}: {stock_names[code]}")
+                else:
+                    logger.warning(f"  {code}: 未找到名称，使用默认")
+                    stock_names[code] = f'股票{code}'
+        else:
+            logger.warning("获取股票名称失败，使用默认名称")
+            for code in stock_codes:
+                stock_names[code] = f'股票{code}'
+                
+    except ImportError:
+        logger.warning("akshare 未安装，使用默认股票名称")
+        for code in stock_codes:
+            stock_names[code] = f'股票{code}'
+    except Exception as e:
+        logger.error(f"获取股票名称失败: {e}")
+        for code in stock_codes:
+            stock_names[code] = f'股票{code}'
+    
+    return stock_names
+
 
 
 def send_to_pushplus(token: str, title: str, content: str) -> bool:
