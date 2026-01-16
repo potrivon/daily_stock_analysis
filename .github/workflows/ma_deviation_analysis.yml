@@ -1,0 +1,109 @@
+name: 均线偏离分析
+
+on:
+  # 定时触发 - 每天北京时间 15:30（收盘后）
+  schedule:
+    - cron: '30 7 * * 1-5'  # UTC 07:30 = 北京 15:30，仅工作日
+
+  # 手动触发
+  workflow_dispatch:
+    inputs:
+      threshold:
+        description: '偏离阈值（百分比）'
+        required: false
+        default: '1.5'
+        type: string
+      push_notification:
+        description: '是否推送通知'
+        required: false
+        default: true
+        type: boolean
+
+# ==================== 说明 ====================
+# 本 workflow 用于执行均线偏离分析并推送结果
+# 
+# 必需配置（Secrets）：
+# - PUSHPLUS_TOKEN: PushPlus 推送 Token（可选，不配置则不推送）
+#
+# 可选配置（Variables 或 Secrets）：
+# - STOCK_LIST: 自选股列表，如 "600519,000001,601899"
+# =============================================
+
+jobs:
+  ma-deviation-analysis:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+      
+      - name: 设置 Python 环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: 安装依赖
+        run: |
+          pip install --upgrade pip
+          pip install pandas numpy python-dotenv requests
+      
+      - name: 创建必要目录
+        run: |
+          mkdir -p data logs reports
+      
+      - name: 执行均线偏离分析
+        env:
+          # 自选股列表（从 Variables 或 Secrets 读取，优先使用 Variables）
+          STOCK_LIST: ${{ vars.STOCK_LIST || secrets.STOCK_LIST || '600519,000001,601899' }}
+          
+          # PushPlus 推送配置
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          
+          # 其他配置
+          LOG_LEVEL: INFO
+        run: |
+          echo "=========================================="
+          echo "均线偏离分析"
+          echo "=========================================="
+          echo "自选股: $STOCK_LIST"
+          echo "偏离阈值: ${{ github.event.inputs.threshold || '1.5' }}%"
+          echo "推送通知: ${{ github.event.inputs.push_notification || 'true' }}"
+          echo "时间: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')"
+          echo "=========================================="
+          echo ""
+          
+          # 执行批量分析
+          python ma_deviation_analyzer.py --batch
+          
+          echo ""
+          echo "=========================================="
+          echo "分析完成"
+          echo "=========================================="
+      
+      - name: 保存分析日志
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ma-deviation-logs-${{ github.run_number }}
+          path: |
+            logs/
+          retention-days: 7
+      
+      - name: 显示运行摘要
+        if: always()
+        run: |
+          echo "## 📊 均线偏离分析完成" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **运行时间**: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_STEP_SUMMARY
+          echo "- **自选股**: $STOCK_LIST" >> $GITHUB_STEP_SUMMARY
+          echo "- **偏离阈值**: ${{ github.event.inputs.threshold || '1.5' }}%" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -n "${{ secrets.PUSHPLUS_TOKEN }}" ]; then
+            echo "- **推送状态**: ✅ 已推送到 PushPlus" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **推送状态**: ⚠️ 未配置 PUSHPLUS_TOKEN" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "查看详细日志请下载 Artifacts" >> $GITHUB_STEP_SUMMARY
