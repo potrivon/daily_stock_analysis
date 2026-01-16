@@ -796,12 +796,9 @@ def generate_ma_deviation_report(results: List[DeviationAnalysisResult]) -> str:
 
 def get_stock_data_demo(code: str) -> Optional[pd.DataFrame]:
     """
-    获取股票数据（演示版本）
+    获取股票真实数据
     
-    在实际使用中，应该替换为真实的数据获取逻辑，例如：
-    - 从 data_provider 模块获取
-    - 从数据库读取
-    - 从 API 获取
+    使用 akshare 获取股票历史K线数据
     
     Args:
         code: 股票代码
@@ -810,46 +807,60 @@ def get_stock_data_demo(code: str) -> Optional[pd.DataFrame]:
         包含历史数据的 DataFrame，如果获取失败则返回 None
     """
     try:
-        # 这里使用模拟数据作为演示
-        # 实际使用时应该调用真实的数据获取函数
+        import akshare as ak
+        from datetime import datetime, timedelta
         
-        # 模拟不同股票的价格走势
-        base_prices = {
-            '600519': 100.0,  # 贵州茅台
-            '000001': 15.0,   # 平安银行
-            '601899': 12.0,   # 紫金矿业
-            '300750': 200.0,  # 宁德时代
-            '002594': 50.0,   # 比亚迪
-        }
+        # 计算日期范围（获取最近100天的数据，确保有足够数据计算MA60）
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=150)  # 多获取一些以确保有足够交易日
         
-        base_price = base_prices.get(code, 50.0)
+        start_str = start_date.strftime('%Y%m%d')
+        end_str = end_date.strftime('%Y%m%d')
         
-        # 生成60天的历史数据，包含一些随机波动
-        np.random.seed(hash(code) % 2**32)  # 使用股票代码作为随机种子
+        logger.info(f"正在获取 {code} 的历史数据 ({start_str} ~ {end_str})...")
         
-        prices = []
-        current_price = base_price
+        # 使用 akshare 获取A股历史数据
+        df = ak.stock_zh_a_hist(
+            symbol=code,
+            period="daily",
+            start_date=start_str,
+            end_date=end_str,
+            adjust="qfq"  # 前复权
+        )
         
-        for i in range(60):
-            # 添加随机波动 (-2% 到 +2%)
-            change = np.random.uniform(-0.02, 0.02)
-            current_price = current_price * (1 + change)
-            prices.append(current_price)
+        if df is None or df.empty:
+            logger.warning(f"获取 {code} 数据为空")
+            return None
         
-        # 最后5天添加趋势（用于生成信号）
-        trend = np.random.choice(['up', 'down', 'neutral'])
-        if trend == 'up':
-            for i in range(5):
-                prices.append(prices[-1] * 1.01)  # 上涨1%
-        elif trend == 'down':
-            for i in range(5):
-                prices.append(prices[-1] * 0.99)  # 下跌1%
-        else:
-            for i in range(5):
-                prices.append(prices[-1] * (1 + np.random.uniform(-0.005, 0.005)))
+        # 标准化列名
+        df = df.rename(columns={
+            '日期': 'date',
+            '开盘': 'open',
+            '收盘': 'close',
+            '最高': 'high',
+            '最低': 'low',
+            '成交量': 'volume',
+            '成交额': 'amount',
+            '涨跌幅': 'pct_chg',
+        })
         
-        return create_test_data(prices)
+        # 确保日期列是datetime类型
+        df['date'] = pd.to_datetime(df['date'])
         
+        # 只保留需要的列
+        required_cols = ['date', 'close']
+        df = df[required_cols]
+        
+        logger.info(f"成功获取 {code} 数据: {len(df)} 条记录")
+        logger.debug(f"数据范围: {df['date'].iloc[0]} ~ {df['date'].iloc[-1]}")
+        logger.debug(f"最新收盘价: {df['close'].iloc[-1]}")
+        
+        return df
+        
+    except ImportError:
+        logger.error("akshare 未安装，无法获取真实数据")
+        logger.info("请运行: pip install akshare")
+        return None
     except Exception as e:
         logger.error(f"获取股票 {code} 数据失败: {e}")
         return None
