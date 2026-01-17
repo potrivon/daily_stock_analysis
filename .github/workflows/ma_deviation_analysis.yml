@@ -46,7 +46,7 @@ jobs:
       - name: 安装依赖
         run: |
           pip install --upgrade pip
-          pip install pandas numpy python-dotenv requests
+          pip install pandas numpy python-dotenv requests akshare
       
       - name: 创建必要目录
         run: |
